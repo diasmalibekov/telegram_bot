@@ -1,54 +1,66 @@
-from telegram.ext import Updater
-from telegram.ext import CommandHandler, MessageHandler, Filters, InlineQueryHandler
-from telegram import InlineQueryResultArticle, InputTextMessageContent
+# timerbot
+import logging
+from telegram.ext import Updater, CommandHandler
+
+#enable logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+
+logger = logging.getLogger(__name__)
 
 
-
-def start(update, context): 
-    context.bot.send_message(chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!")
-
-def echo(update, context): 
-    context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+def start(update, context):
+    update.message.reply_text('Hi, use /set <seconds> to set timer')
     
-def caps(update, context):
-    text_caps = ' '.join(context.args).upper()
-    context.bot.send_message(chat_id=update.effective_chat.id, text=text_caps)
+def alarm(context):
+    job = context.job
+    context.bot.send_message(job.context, text='Beep')
     
-def inline_caps(update, context):
-    query = update.inline_query.query
-    if not query:
+def set_timer(update, context):
+    chat_id = update.message.chat_id
+    try:
+        due = int(context.args[0])
+        if due < 0:
+            update.message.reply_text('Sorry, we can not go back to the future!')
+            return
+        
+        if 'job' in context.chat_data:
+            old_job = context.chat_data['job']
+            old_job.schedule_removal()
+        new_job = context.job_queue.run_once(alarm, due, context=chat_id)
+        context.chat_data['job'] = new_job
+        
+        update.message.reply_text('Timer successfully set!')
+        
+    except(IndexError, ValueError):
+        update.message.reply_text('Usage: /set <seconds>')
+        
+def unset(update, context):
+    if 'job' not in context.chat_data:
+        update.message.reply_text('U have no active timer')
         return
-    results = list()
-    results.append(
-        InlineQueryResultArticle(
-            id=query.upper(),
-            title='Caps',
-            input_message_content=InputTextMessageContent(query.upper())
-        )
-    )
-    context.bot.answer_inline_query(update.inline_query.id, results)
+    job = context.chat_data['job']
+    job.schedule_removal()
+    del context.chat_data['job']
     
-def unknown(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text='Sorry, I didn\'t understand that command')
-
-updater = Updater(token='1239064605:AAGND94K2INFwgN9WYVk2xRoDYsYaphlzC4', use_context=True) 
-dispatcher = updater.dispatcher #handles the updates 
+    update.message.reply_text('Timer successfully unset!')
     
-start_handler = CommandHandler('start', start) #the commands handler should listen to 
-dispatcher.add_handler(start_handler) # register a start_handler 
-
-caps_handler = CommandHandler('caps', caps) 
-dispatcher.add_handler(caps_handler) #add CAPS-func
-
-echo_handler = MessageHandler(Filters.text & (~Filters.command), echo) #any text, but commands
-dispatcher.add_handler(echo_handler) #register ecgo_handler 
-
-inline_caps_handler = InlineQueryHandler(inline_caps) #inline mod handler
-dispatcher.add_handler(inline_caps_handler)
-
-unknown_handler = MessageHandler(Filters.command, unknown) #unknown commands
-dispatcher.add_handler(unknown_handler)
-
-updater.start_polling()  #stars polling updates from trgm  
-updater.idle() #stops the updater
-
+def main():
+    updater = Updater('1239064605:AAGND94K2INFwgN9WYVk2xRoDYsYaphlzC4', use_context=True)
+    
+    #get the dispatcher to register handlers 
+    dp = updater.dispatcher
+    
+    dp.add_handler(CommandHandler('start', start))
+    dp.add_handler(CommandHandler('help', start))
+    dp.add_handler(CommandHandler('set', set_timer,
+                                  pass_args=True,
+                                  pass_job_queue=True,
+                                  pass_chat_data=True))
+    dp.add_handler(CommandHandler('unset', unset, pass_chat_data=True))
+    
+    updater.start_polling()
+    updater.idle()
+    
+if __name__ == '__main__':
+    main()
